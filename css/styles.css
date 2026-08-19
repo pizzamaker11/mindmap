@@ -187,6 +187,20 @@ html, body { margin: 0; height: 100%; background: #0f111a; -webkit-text-size-adj
     .zoomctl button { font-family:inherit; font-size:15px; color:#e8e4d8; background:var(--panel2); border:1px solid var(--line); border-radius:7px; width:30px; height:30px; cursor:pointer; display:grid; place-items:center; padding:0; line-height:1; }
     .zoomctl button:hover { border-color:#e0b45f; color:#f5deb0; }
     .zoomctl .zpct { width:auto; padding:0 9px; font-size:11px; color:var(--muted); }
+
+    .map-glow { position:absolute; top:0; left:0; overflow:visible; pointer-events:none; mix-blend-mode:screen; }
+    .wave-glow { stroke:none; fill:var(--wc); fill-opacity:.55; animation:waveglow-pulse 2.6s ease-in-out infinite; }
+    @keyframes waveglow-pulse { 0%,100% { fill-opacity:.4; } 50% { fill-opacity:.7; } }
+    @media (prefers-reduced-motion: reduce){ .wave-glow{ animation:none; fill-opacity:.55; } }
+
+    .wavectl { position:absolute; bottom:16px; left:16px; display:flex; flex-direction:column; gap:6px; background:rgba(20,23,38,.9); backdrop-filter:blur(8px); border:1px solid var(--line); border-radius:10px; padding:8px 10px; z-index:5; }
+    .wavectl-cap { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); }
+    .wavectl-row { display:flex; gap:5px; }
+    .wave-btn { font-family:inherit; font-weight:700; font-size:12px; color:var(--muted); background:var(--panel2); border:1px solid var(--line); border-radius:50%; width:26px; height:26px; cursor:pointer; display:grid; place-items:center; padding:0; line-height:1; transition:all .15s ease; }
+    .wave-btn:hover { border-color:var(--wc); color:var(--wc); }
+    .wave-btn.on { background:var(--wc); border-color:var(--wc); color:#0f111a; box-shadow:0 0 12px var(--wc); }
+    .bm.light .wavectl { background:rgba(255,255,255,.94); }
+    .bm.light .wave-btn.on { color:#fff; }
     .node-dot.haslink { cursor:pointer; }
     .node-dot.haslink::after { content:''; position:absolute; width:16px; height:16px; border-radius:50%; border:1px dotted rgba(95,176,217,.55); }
     .legend { display:flex; flex-wrap:wrap; gap:10px 16px; padding:12px 22px; border-top:1px solid var(--line); background:#101320; }

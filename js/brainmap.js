@@ -4,7 +4,7 @@
 // Styling lives in css/styles.css, not here.
 // ─────────────────────────────────────────────────────────────
 
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.1.1";
 function BrainMap() {
   const idx = useMemo(() => buildIndex(ROOTS), []);
   const [selected, setSelected] = useState("v4");
@@ -12,6 +12,7 @@ function BrainMap() {
   const [viewMode, setViewMode] = useState("dict"); // 'dict' | 'map' | 'spatial'
   const [headerOpen, setHeaderOpen] = useState(true);
   const [theme, setTheme] = useState("dark"); // dark | light
+  const [activeWave, setActiveWave] = useState(null); // delta|theta|alpha|beta|gamma|null
   const detailRef = useRef(null);
   const pathTo = id => {
     const o = [];
@@ -40,6 +41,7 @@ function BrainMap() {
       pathTo(id).forEach(n => s.add(n.id));
       return s;
     });
+    if (WAVE_IDS.includes(id)) setActiveWave(id);
   };
   const q = query.trim().toLowerCase();
   const searchVisible = useMemo(() => {
@@ -185,7 +187,9 @@ function BrainMap() {
     selected: selected,
     onSelect: select,
     theme: theme,
-    mode: viewMode
+    mode: viewMode,
+    activeWave: activeWave,
+    onWaveChange: setActiveWave
   })) : /*#__PURE__*/React.createElement("div", {
     className: "bm-body"
   }, /*#__PURE__*/React.createElement("div", {

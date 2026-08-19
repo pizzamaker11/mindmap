@@ -8,7 +8,9 @@ function MapView({
   selected,
   onSelect,
   theme,
-  mode
+  mode,
+  activeWave,
+  onWaveChange
 }) {
   const {
     pos,
@@ -28,36 +30,44 @@ function MapView({
     return { ...pos, ...expandLayout(selected, idx, origin.x, origin.y) };
   }, [pos, selected, idx, mode]);
 
-  // Region rings are recomputed from whatever positions are currently on
-  // screen, so an expanded region's ring grows to still wrap its fanned-out
-  // children instead of staying pinned to their old cramped anatomical spot.
+  // Region outlines are recomputed from whatever positions are currently on
+  // screen, so an expanded region's outline grows to still wrap its
+  // fanned-out children instead of staying pinned to their old cramped
+  // anatomical spot. Each is a smooth hull hugging its actual member
+  // points — an organic lobe-shaped outline, not a generic circle.
   const regions = useMemo(() => {
     if (mode !== "spatial") return [];
     const out = [];
     idx.flat.forEach(n => {
       if (n.tag !== "region") return;
-      const ids = [];
-      const collect = id => {
-        ids.push(id);
-        (idx.byId[id].children || []).forEach(c => collect(c.id));
-      };
-      collect(n.id);
-      const pts = ids.map(id => displayPos[id]).filter(Boolean);
-      if (!pts.length) return;
-      const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-      const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-      const r = Math.max(34, ...pts.map(p => Math.hypot(p.x - cx, p.y - cy) + 24));
-      out.push({
+      const shape = nodeAreaShape(n.id, idx, displayPos, 22);
+      if (!shape) return;
+      const extent = shape.kind === "circle" ? shape.r : shape.extent;
+      out.push(Object.assign({
         id: n.id,
         name: n.name,
-        cx,
-        cy,
-        r
-      });
+        extent
+      }, shape));
     });
-    out.sort((a, b) => b.r - a.r);
+    out.sort((a, b) => b.extent - a.extent);
     return out;
   }, [idx, displayPos, mode]);
+
+  // Brain-wave glow: whichever regions the active wave's `link` points at
+  // (a whole lobe, a single nucleus, or all of "Cerebral Cortex" — whatever
+  // that wave's data says it drives) get a soft luminous shape in that
+  // wave's color, reusing the same hull/circle logic as the region rings.
+  const glowShapes = useMemo(() => {
+    if (mode !== "spatial" || !activeWave) return [];
+    const waveNode = idx.byId[activeWave];
+    if (!waveNode || !waveNode.link) return [];
+    return waveNode.link.filter(id => idx.byId[id]).map(id => {
+      const shape = nodeAreaShape(id, idx, displayPos, 30);
+      return shape && Object.assign({
+        id
+      }, shape);
+    }).filter(Boolean);
+  }, [mode, activeWave, idx, displayPos]);
   // real tree depth (independent of which layout is active — layoutSpatial doesn't track it)
   const treeMaxDepth = useMemo(() => idx.flat.reduce((m, n) => Math.max(m, idx.depthOf[n.id]), 0), [idx]);
   const links = useMemo(() => idx.flat.filter(n => n.link).flatMap(n => n.link.map(t => ({
@@ -409,10 +419,16 @@ function MapView({
     width: worldW,
     height: worldH
   }, /*#__PURE__*/React.createElement("path", {
-    d: (() => {
-      const sp = (x, y) => `${SP_PAD + x * SP_SCALE} ${SP_PAD + y * SP_SCALE}`;
-      return `M ${sp(14, 6)} C ${sp(30, -2)} ${sp(62, -2)} ${sp(78, 10)} C ${sp(88, 18)} ${sp(82, 34)} ${sp(72, 42)} C ${sp(66, 47)} ${sp(62, 50)} ${sp(58, 54)} C ${sp(66, 62)} ${sp(62, 84)} ${sp(56, 98)} L ${sp(40, 98)} C ${sp(36, 84)} ${sp(34, 64)} ${sp(40, 54)} C ${sp(36, 50)} ${sp(32, 47)} ${sp(27, 42)} C ${sp(18, 36)} ${sp(10, 30)} ${sp(11, 18)} C ${sp(11, 12)} ${sp(12, 8)} ${sp(14, 6)} Z`;
-    })(),
+    d: smoothClosedPath(BRAIN_OUTLINE.map(([x, y]) => ({
+      x: SP_PAD + x * SP_SCALE,
+      y: SP_PAD + y * SP_SCALE
+    }))),
+    className: "silhouette-path"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: smoothClosedPath(CORD_OUTLINE.map(([x, y]) => ({
+      x: SP_PAD + x * SP_SCALE,
+      y: SP_PAD + y * SP_SCALE
+    }))),
     className: "silhouette-path"
   })), mode === "spatial" && regions.length > 0 && /*#__PURE__*/React.createElement("svg", {
     className: "map-regions",
@@ -420,15 +436,22 @@ function MapView({
     height: worldH
   }, regions.map(r => {
     const isOn = selected && (lineage.has(r.id) || r.id === selected);
-    return /*#__PURE__*/React.createElement("circle", {
+    const cls = "region-ring" + (isOn ? " on" : "");
+    const style = {
+      "--c": TAGS.region.color
+    };
+    return r.kind === "circle" ? /*#__PURE__*/React.createElement("circle", {
       key: r.id,
-      className: "region-ring" + (isOn ? " on" : ""),
+      className: cls,
       cx: r.cx,
       cy: r.cy,
       r: r.r,
-      style: {
-        "--c": TAGS.region.color
-      }
+      style: style
+    }) : /*#__PURE__*/React.createElement("path", {
+      key: r.id,
+      className: cls,
+      d: r.d,
+      style: style
     });
   })), /*#__PURE__*/React.createElement("svg", {
     className: "map-links",
@@ -488,6 +511,37 @@ function MapView({
         pointerEvents: "none"
       }
     }));
+  })), mode === "spatial" && glowShapes.length > 0 && /*#__PURE__*/React.createElement("svg", {
+    className: "map-glow",
+    width: worldW,
+    height: worldH
+  }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("filter", {
+    id: "waveglow",
+    x: "-80%",
+    y: "-80%",
+    width: "260%",
+    height: "260%"
+  }, /*#__PURE__*/React.createElement("feGaussianBlur", {
+    stdDeviation: 16
+  }))), glowShapes.map(g => {
+    const style = {
+      "--wc": WAVE_COLORS[activeWave]
+    };
+    return g.kind === "circle" ? /*#__PURE__*/React.createElement("circle", {
+      key: g.id,
+      className: "wave-glow",
+      cx: g.cx,
+      cy: g.cy,
+      r: g.r,
+      style: style,
+      filter: "url(#waveglow)"
+    }) : /*#__PURE__*/React.createElement("path", {
+      key: g.id,
+      className: "wave-glow",
+      d: g.d,
+      style: style,
+      filter: "url(#waveglow)"
+    });
   })), idx.flat.map(n => {
     const p = displayPos[n.id];
     const isSel = n.id === selected;
@@ -581,7 +635,27 @@ function MapView({
     className: "zfit",
     onClick: fitView,
     "aria-label": "Fit whole map"
-  }, "⤢")), node && /*#__PURE__*/React.createElement("div", {
+  }, "⤢")), mode === "spatial" && /*#__PURE__*/React.createElement("div", {
+    className: "wavectl",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "wavectl-cap"
+  }, "Brain waves"), /*#__PURE__*/React.createElement("div", {
+    className: "wavectl-row"
+  }, WAVE_IDS.map(wid => {
+    const w = idx.byId[wid];
+    if (!w) return null;
+    const on = activeWave === wid;
+    return /*#__PURE__*/React.createElement("button", {
+      key: wid,
+      className: "wave-btn" + (on ? " on" : ""),
+      style: {
+        "--wc": WAVE_COLORS[wid]
+      },
+      onClick: () => onWaveChange(on ? null : wid),
+      title: w.name
+    }, w.name[0]);
+  }))), node && /*#__PURE__*/React.createElement("div", {
     className: "depth-rail"
   }, /*#__PURE__*/React.createElement("span", {
     className: "dr-cap"

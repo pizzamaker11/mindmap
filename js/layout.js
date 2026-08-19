@@ -48,18 +48,29 @@ const COL = 200,
 // (see below) — either at its linked structure's spot (for brain-wave/sleep
 // nodes, which are behaviors of a place, not places themselves) or clustered
 // in a small ring around its nearest anchored ancestor.
+// Sagittal (side-profile) brain + spinal cord outline, as ordered waypoints
+// in the same 0–100 space as SPATIAL_POS (x: front→back, y: top→bottom).
+// Not a textbook illustration, but a real brain silhouette: frontal lobe
+// bulge at the front, parietal/occipital sweep over the top and back,
+// cerebellum bump tucked underneath the back, a notch for the temporal
+// lobe hanging separately below the Sylvian fissure, and the brainstem
+// narrowing down into the spinal cord. Smoothed into curves via
+// smoothClosedPath (see below) — tweak a waypoint, the curve follows.
+const BRAIN_OUTLINE = [[7, 18], [9, 5], [22, -3], [44, -4], [62, -2], [74, 6], [78, 16], [75, 27], [69, 34], [67, 42], [57, 43], [49, 39], [43, 42], [31, 46], [20, 44], [13, 36], [12, 27], [20, 24], [13, 19]];
+const CORD_OUTLINE = [[53, 40], [54, 55], [53, 75], [51, 97], [48, 97], [46, 75], [45, 55], [46, 40]];
+
 const SPATIAL_POS = {
   // whole-system roots / trunk
   ns: { x: 45, y: 2 },
   cns: { x: 45, y: 5 },
   brain: { x: 45, y: 7 },
-  spinalcord: { x: 50, y: 50 },
-  greymatter: { x: 50, y: 50 },
-  dorsalhorn: { x: 51, y: 50 },
-  ventralhorn: { x: 49, y: 50 },
-  spinalwhite: { x: 50, y: 52 },
-  pns: { x: 50, y: 55 },
-  somatic: { x: 50, y: 57 },
+  spinalcord: { x: 49, y: 62 },
+  greymatter: { x: 49, y: 60 },
+  dorsalhorn: { x: 51, y: 61 },
+  ventralhorn: { x: 47, y: 61 },
+  spinalwhite: { x: 49, y: 64 },
+  pns: { x: 58, y: 60 },
+  somatic: { x: 58, y: 66 },
   cranialnerves: { x: 50, y: 40 },
   autonomic: { x: 48, y: 62 },
   symp: { x: 46, y: 65 },
@@ -444,6 +455,112 @@ function layoutWorld(roots) {
     worldH: (rowCursor - ISLAND_GAP) * ROW + PADY * 2,
     maxDepth,
     islands
+  };
+}
+
+// ── SPATIAL MAP GEOMETRY ─────────────────────────────────────────
+// Turns a set of points into a smooth closed outline, used for both the
+// brain/spinal-cord silhouette and the per-region "territory" shapes (in
+// place of a plain circle) and the brain-wave glow shapes.
+
+// Andrew's monotone chain: smallest convex polygon containing all points.
+function convexHull(points) {
+  const pts = points.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  const n = pts.length;
+  if (n < 3) return pts;
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+// Pushes each hull point outward from the centroid, so the outline clears
+// the dots/labels it encloses instead of cutting through them.
+function expandHull(hull, pad) {
+  const cx = hull.reduce((s, p) => s + p.x, 0) / hull.length;
+  const cy = hull.reduce((s, p) => s + p.y, 0) / hull.length;
+  return hull.map(p => {
+    const dx = p.x - cx,
+      dy = p.y - cy;
+    const len = Math.hypot(dx, dy) || 1;
+    return {
+      x: p.x + dx / len * pad,
+      y: p.y + dy / len * pad
+    };
+  });
+}
+
+// Uniform Catmull-Rom through a closed ring of points, converted to cubic
+// beziers — every input point sits exactly on the curve, so an organic
+// shape only needs a handful of waypoints instead of hand-tuned control
+// points. Works for both a hand-authored silhouette and an auto-computed
+// hull.
+function smoothClosedPath(points) {
+  const n = points.length;
+  if (n < 2) return "";
+  if (n === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y} Z`;
+  const at = i => points[((i % n) + n) % n];
+  let d = `M ${at(0).x} ${at(0).y} `;
+  for (let i = 0; i < n; i++) {
+    const p0 = at(i - 1),
+      p1 = at(i),
+      p2 = at(i + 1),
+      p3 = at(i + 2);
+    const c1x = p1.x + (p2.x - p0.x) / 6,
+      c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6,
+      c2y = p2.y - (p3.y - p1.y) / 6;
+    d += `C ${c1x} ${c1y} ${c2x} ${c2y} ${p2.x} ${p2.y} `;
+  }
+  return d + "Z";
+}
+
+// The "territory" for a node id: itself plus every descendant, as a smooth
+// hull if there's enough spread to form one, else a padded circle. Used
+// for region outlines (any "region"-tagged node) and for brain-wave glow
+// shapes (any node a wave's `link` points at, region-tagged or not — e.g.
+// a whole lobe, a single nucleus, or all of "Cerebral Cortex").
+function nodeAreaShape(id, idx, pos, pad) {
+  const ids = [];
+  const collect = nid => {
+    ids.push(nid);
+    (idx.byId[nid].children || []).forEach(c => collect(c.id));
+  };
+  collect(id);
+  const pts = ids.map(nid => pos[nid]).filter(Boolean);
+  if (!pts.length) return null;
+  if (pts.length < 3) {
+    const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length,
+      cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    const r = Math.max(pad, ...pts.map(p => Math.hypot(p.x - cx, p.y - cy) + pad));
+    return {
+      kind: "circle",
+      cx,
+      cy,
+      r
+    };
+  }
+  const hull = expandHull(convexHull(pts), pad);
+  const cx = hull.reduce((s, p) => s + p.x, 0) / hull.length,
+    cy = hull.reduce((s, p) => s + p.y, 0) / hull.length;
+  const extent = Math.max(...hull.map(p => Math.hypot(p.x - cx, p.y - cy)));
+  return {
+    kind: "hull",
+    d: smoothClosedPath(hull),
+    cx,
+    cy,
+    extent
   };
 }
 

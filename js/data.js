@@ -931,6 +931,18 @@ const TAGS = {
   }
 };
 
+// One color per EEG band, slow→fast mapped across a spectrum so the active
+// wave is identifiable at a glance on the Spatial Map glow. Order here is
+// also the order the wave-picker buttons render in.
+const WAVE_COLORS = {
+  delta: "#4d8dff",
+  theta: "#2dd4bf",
+  alpha: "#7ee081",
+  beta: "#ffa53d",
+  gamma: "#ff4fa3"
+};
+const WAVE_IDS = Object.keys(WAVE_COLORS);
+
 // Richer per-node detail, kept separate so the tree stays readable.
 // Anything here shows in the details box; nodes without an entry fall back to their blurb.
 const DETAIL = {
